@@ -11,6 +11,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=Noto+Sans+SC:wght@400;500&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
 <style>
+  @font-face {
+    font-family: 'RRPL';
+    src: url('/static/RRPL.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+
   :root {
     /* === 复古掌机 retro-handheld palette — warm cream plastic + pale LCD + gold === */
     --bg: #E7E2D8;                    /* 外环境米灰（带颗粒感） */
@@ -43,7 +51,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    font-family: 'Share Tech Mono', 'Noto Sans SC', system-ui, sans-serif;
+    font-family: 'Share Tech Mono', 'RRPL', system-ui, sans-serif;
     font-weight: 400;
     background: var(--bg);
     color: var(--text);
@@ -974,17 +982,17 @@
     box-shadow: inset 3px 3px 8px rgba(80,78,58,0.28), inset -3px -3px 7px rgba(255,255,255,0.30);
   }
   #network-terminal::before { content:'> '; color: var(--accent); }
-  /* 星空模式：画布变深色，terminal 反色 */
+  /* 工程网格星图模式 */
   #network-canvas.star-active {
-    background: #0D0F0A !important;
+    background: #EBE6D9 !important;
     background-image: none !important;
   }
   #network-terminal.star-active {
-    background: #0D0F0A;
-    color: rgba(180,165,100,0.65);
-    text-shadow: 0 0 4px rgba(194,152,47,0.3);
+    background: #EBE6D9;
+    color: rgba(90,82,62,0.65);
+    text-shadow: none;
   }
-  #network-terminal.star-active::before { color: rgba(194,152,47,0.7); }
+  #network-terminal.star-active::before { color: rgba(180,138,40,0.8); }
 
   /* ============ Breath 评分流程：屏内点阵卡片 ============ */
   .flow-step {
@@ -3350,6 +3358,7 @@ function closeDetail() {
 var networkData = null;
 var _netRAF = null;
 var _netListenersAttached = false;
+var _netRotAngle = 0;
 var networkState = {
   focusNode: null,      // 当前聚焦的节点 id，null = 全局视图
   depth: 2,             // 展开深度
@@ -3425,8 +3434,9 @@ function initConceptNetwork(canvas, ctx, W, H, data) {
   networkState.panOffset    = { x: 0, y: 0 };
   networkState.scale        = 1;
   networkState.needsLayout  = true;
+  _netRotAngle              = 0;
 
-  // 切换成星空外观
+  // 切换成工程网格星图外观
   canvas.classList.add('star-active');
   var termEl = document.getElementById('network-terminal');
   if (termEl) termEl.classList.add('star-active');
@@ -3537,14 +3547,19 @@ function getNeighbors(startId, depth, data) {
 // –– 碰撞检测（返回被点击的节点 id 或 null） ––
 function hitTest(mx, my, W, H) {
   if (!networkData) return null;
+  // 反向旋转鼠标坐标，对应到未旋转的节点坐标系
+  var cx  = W / 2, cy = H / 2;
+  var cos = Math.cos(-_netRotAngle), sin = Math.sin(-_netRotAngle);
+  var rx  = cx + (mx - cx) * cos - (my - cy) * sin;
+  var ry  = cy + (mx - cx) * sin + (my - cy) * cos;
   var nodes = networkData.nodes || [];
   var hit = null;
   nodes.forEach(function (n) {
     if (!networkState.visibleNodes.has(n.id)) return;
     var p = networkState.positions[n.id];
     if (!p) return;
-    var r = Math.max(4, Math.min(16, 3 + Math.sqrt(n.freq || 1) * 3)) + 6;
-    var dx = mx - p.x, dy = my - p.y;
+    var r  = Math.max(4, Math.min(14, 2 + Math.sqrt(n.freq || 1) * 2.5)) + 5;
+    var dx = rx - p.x, dy = ry - p.y;
     if (dx * dx + dy * dy < r * r) hit = n.id;
   });
   return hit;
@@ -3605,34 +3620,26 @@ function _computeConceptLayout(W, H, data) {
   }
 }
 
-// –– 星空动画主循环 ––
+// –– 工程网格星图动画主循环 ––
 function animateConceptNetwork(canvas, ctx, W, H, data) {
   if (_netRAF) { cancelAnimationFrame(_netRAF); _netRAF = null; }
 
-  // 每节点闪烁参数（首次生成，之后复用）
+  // 每节点脉动参数（首次生成，复用）
   if (!data._twinkle) {
     data._twinkle = {};
     (data.nodes || []).forEach(function (n) {
       data._twinkle[n.id] = {
         phase: Math.random() * Math.PI * 2,
-        freq:  0.4 + Math.random() * 0.7,
-        ampR:  0.12 + Math.random() * 0.18,
+        freq:  0.3 + Math.random() * 0.6,
+        ampR:  0.08 + Math.random() * 0.12,
       };
     });
   }
-  // 装饰性背景小星点
-  if (!data._bgStars) {
-    data._bgStars = [];
-    for (var i = 0; i < 55; i++) {
-      data._bgStars.push({
-        x: Math.random() * W, y: Math.random() * H,
-        r: 0.3 + Math.random() * 1.1,
-        phase: Math.random() * Math.PI * 2,
-        freq:  0.25 + Math.random() * 0.55,
-        a:     0.08 + Math.random() * 0.28,
-      });
-    }
-  }
+
+  // 网格参数
+  var GRID = 26;           // 小格间距 px
+  var MAJOR = 5;           // 每 N 格画一条粗线
+  var ROT_SPEED = 0.00012; // rad/frame ≈ 0.41°/s，约 14 分钟一圈
 
   var t0 = performance.now();
 
@@ -3645,73 +3652,100 @@ function animateConceptNetwork(canvas, ctx, W, H, data) {
     var hoverId   = networkState.hoverNode;
     var positions = networkState.positions;
 
-    // 有需要就重算布局（click 后触发）
     if (networkState.needsLayout) {
       _computeConceptLayout(W, H, data);
       networkState.needsLayout = false;
     }
 
+    _netRotAngle += ROT_SPEED;
+
     var nodes    = allNodes.filter(function (n) { return visible.has(n.id); });
     var visEdges = allEdges.filter(function (e) { return visible.has(e.source) && visible.has(e.target); });
 
+    // ── 静态背景：米色底 + 工程网格 ──
+    ctx.fillStyle = '#EBE6D9';
+    ctx.fillRect(0, 0, W, H);
+
+    // 细格
+    ctx.beginPath();
+    for (var gx = GRID; gx < W; gx += GRID) {
+      if (Math.round(gx / GRID) % MAJOR === 0) continue;
+      ctx.moveTo(gx, 0); ctx.lineTo(gx, H);
+    }
+    for (var gy = GRID; gy < H; gy += GRID) {
+      if (Math.round(gy / GRID) % MAJOR === 0) continue;
+      ctx.moveTo(0, gy); ctx.lineTo(W, gy);
+    }
+    ctx.strokeStyle = 'rgba(140,132,112,0.13)';
+    ctx.lineWidth   = 0.5;
+    ctx.stroke();
+
+    // 粗格
+    ctx.beginPath();
+    for (var gx = 0; gx <= W; gx += GRID * MAJOR) {
+      ctx.moveTo(gx, 0); ctx.lineTo(gx, H);
+    }
+    for (var gy = 0; gy <= H; gy += GRID * MAJOR) {
+      ctx.moveTo(0, gy); ctx.lineTo(W, gy);
+    }
+    ctx.strokeStyle = 'rgba(120,112,92,0.22)';
+    ctx.lineWidth   = 0.8;
+    ctx.stroke();
+
     if (!nodes.length) {
-      ctx.fillStyle = '#0D0F0A'; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = 'rgba(180,165,100,0.4)'; ctx.textAlign = 'center';
-      ctx.font = "14px 'Share Tech Mono', monospace";
+      ctx.fillStyle = 'rgba(90,82,62,0.45)';
+      ctx.font      = "14px 'Share Tech Mono', monospace";
+      ctx.textAlign = 'center';
       ctx.fillText('还没有 [[双链]] 或 #tag', W / 2, H / 2);
       _netRAF = requestAnimationFrame(frame);
       return;
     }
 
-    // ── 背景 ──
-    ctx.fillStyle = '#0D0F0A';
-    ctx.fillRect(0, 0, W, H);
+    // ── 旋转坐标系（仅网络层）──
+    var cx = W / 2, cy = H / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(_netRotAngle);
+    ctx.translate(-cx, -cy);
 
-    // ── 装饰性小星点 ──
-    data._bgStars.forEach(function (s) {
-      var a = s.a * (0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * s.freq * Math.PI * 2 + s.phase)));
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(200,185,130,' + a.toFixed(3) + ')';
-      ctx.fill();
-    });
-
-    // ── 边（星轨渐变：节点端亮、中段暗） ──
+    // ── 边（星图连线：渐变，节点端较深，中段淡）──
     visEdges.forEach(function (e) {
       var pa = positions[e.source], pb = positions[e.target];
       if (!pa || !pb) return;
-      var w   = e.weight || 1;
+      var w    = e.weight || 1;
       var isFE = (e.source === focusId || e.target === focusId);
-      var baseA = isFE ? 0.50 : Math.min(0.28, 0.06 + 0.055 * w);
+      var baseA = isFE ? 0.45 : Math.min(0.22, 0.05 + 0.045 * w);
       var grad  = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
-      grad.addColorStop(0,   'rgba(194,175,110,' + baseA.toFixed(3) + ')');
-      grad.addColorStop(0.5, 'rgba(194,175,110,' + (baseA * 0.2).toFixed(3) + ')');
-      grad.addColorStop(1,   'rgba(194,175,110,' + baseA.toFixed(3) + ')');
+      grad.addColorStop(0,   'rgba(100,88,60,' + baseA.toFixed(3) + ')');
+      grad.addColorStop(0.5, 'rgba(100,88,60,' + (baseA * 0.15).toFixed(3) + ')');
+      grad.addColorStop(1,   'rgba(100,88,60,' + baseA.toFixed(3) + ')');
       ctx.beginPath();
       ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
       ctx.strokeStyle = grad;
-      ctx.lineWidth   = isFE ? 1.4 : 0.75;
+      ctx.lineWidth   = isFE ? 1.2 : 0.7;
       ctx.stroke();
     });
 
-    // ── 节点（闪烁星星） ──
+    // ── 节点（小圆点 + 脉动光晕）──
     nodes.forEach(function (n) {
       var p = positions[n.id];
       if (!p) return;
-      var tw      = data._twinkle[n.id] || { phase: 0, freq: 0.5, ampR: 0.15 };
-      var pulse   = Math.sin(t * tw.freq * Math.PI * 2 + tw.phase); // −1..1
+      var tw      = data._twinkle[n.id] || { phase: 0, freq: 0.45, ampR: 0.10 };
+      var pulse   = Math.sin(t * tw.freq * Math.PI * 2 + tw.phase);
       var isFocus = (n.id === focusId);
       var isHover = (n.id === hoverId);
       var lit     = isFocus || n.anchor || isHover;
-      var baseR   = Math.max(2.5, Math.min(9, 2 + Math.sqrt(n.freq || 1) * 1.7));
-      var r       = (isFocus ? baseR * 1.5 : isHover ? baseR * 1.25 : baseR) * (1 + tw.ampR * pulse);
 
-      // 径向发光晕圈
-      var glowR = r + (lit ? 16 : 9) + (lit ? 5 : 2) * pulse;
-      var glowA = lit ? (0.36 + 0.12 * pulse) : (0.09 + 0.05 * pulse);
+      // 缩小尺寸：max 1.8, min 6  (原来 2.5/9)
+      var baseR = Math.max(1.8, Math.min(6, 1.4 + Math.sqrt(n.freq || 1) * 1.2));
+      var r     = (isFocus ? baseR * 1.4 : isHover ? baseR * 1.2 : baseR) * (1 + tw.ampR * pulse);
+
+      // 光晕（浅背景下用低透明度暖金）
+      var glowR = r + (lit ? 11 : 6) + (lit ? 3 : 1) * pulse;
+      var glowA = lit ? (0.22 + 0.08 * pulse) : (0.06 + 0.03 * pulse);
       var grd   = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, Math.max(1, glowR));
-      grd.addColorStop(0, 'rgba(194,152,47,' + glowA.toFixed(3) + ')');
-      grd.addColorStop(1, 'rgba(194,152,47,0)');
+      grd.addColorStop(0, 'rgba(180,138,40,' + glowA.toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(180,138,40,0)');
       ctx.beginPath();
       ctx.arc(p.x, p.y, Math.max(1, glowR), 0, Math.PI * 2);
       ctx.fillStyle = grd;
@@ -3719,45 +3753,54 @@ function animateConceptNetwork(canvas, ctx, W, H, data) {
 
       // 焦点/锚点轨道环
       if (isFocus || n.anchor) {
-        var ringR = r + (isFocus ? 10 : 6) + 2 * pulse;
+        var ringR = r + (isFocus ? 8 : 5) + 1.5 * pulse;
         ctx.beginPath();
         ctx.arc(p.x, p.y, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(194,152,47,' + (0.5 + 0.2 * pulse).toFixed(3) + ')';
-        ctx.lineWidth   = isFocus ? 1.8 : 1.2;
+        ctx.strokeStyle = 'rgba(180,138,40,' + (0.45 + 0.15 * pulse).toFixed(3) + ')';
+        ctx.lineWidth   = isFocus ? 1.4 : 1.0;
         ctx.stroke();
       }
 
-      // 星体本身
-      var bodyA = lit ? (0.95 + 0.05 * pulse) : (0.5 + 0.2 * pulse);
+      // 点本体
+      var bodyA = lit ? (0.92 + 0.08 * pulse) : (0.48 + 0.18 * pulse);
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = lit
-        ? 'rgba(220,170,60,' + bodyA.toFixed(3) + ')'
-        : 'rgba(160,150,110,' + bodyA.toFixed(3) + ')';
+        ? 'rgba(180,138,40,' + bodyA.toFixed(3) + ')'
+        : 'rgba(72,65,50,' + bodyA.toFixed(3) + ')';
       ctx.fill();
 
-      // 焦点节点标签
+      // 焦点节点标签（抵消旋转，保持文字竖直）
       if (isFocus) {
+        ctx.save();
+        ctx.translate(p.x, p.y + r + 16);
+        ctx.rotate(-_netRotAngle);
         var label  = n.label || n.id;
         if (label.length > 14) label = label.slice(0, 14) + '…';
         var prefix = n.kind === 'tag' ? '#' : '';
-        ctx.fillStyle = 'rgba(220,185,80,0.95)';
-        ctx.font      = "bold 12px 'Share Tech Mono', monospace";
-        ctx.textAlign = 'center';
-        ctx.fillText((n.anchor ? '⚓ ' : '') + prefix + label, p.x, p.y + r + 18);
+        ctx.fillStyle  = 'rgba(160,120,30,0.95)';
+        ctx.font       = "bold 11px 'Share Tech Mono', 'RRPL', sans-serif";
+        ctx.textAlign  = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText((n.anchor ? '⚓ ' : '') + prefix + label, 0, 0);
+        ctx.restore();
       }
     });
 
-    // ── HUD 提示 ──
+    ctx.restore(); // 结束旋转坐标系
+
+    // ── HUD（不旋转）──
     if (!focusId) {
-      ctx.fillStyle = 'rgba(180,165,100,0.35)';
-      ctx.font      = "11px 'Share Tech Mono', monospace";
-      ctx.textAlign = 'center';
+      ctx.fillStyle    = 'rgba(90,80,55,0.35)';
+      ctx.font         = "11px 'Share Tech Mono', monospace";
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.fillText('TOP ' + nodes.length + ' NODES · 悬浮看详情 · 点击展开邻居', W / 2, 22);
     } else {
-      ctx.fillStyle = 'rgba(194,152,47,0.75)';
-      ctx.font      = "11px 'Share Tech Mono', monospace";
-      ctx.textAlign = 'center';
+      ctx.fillStyle    = 'rgba(170,128,35,0.8)';
+      ctx.font         = "11px 'Share Tech Mono', monospace";
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.fillText('DEPTH ' + networkState.depth + ' · ' + nodes.length + ' NODES · 点击焦点节点返回全局', W / 2, 22);
     }
 
