@@ -23,6 +23,7 @@ from . import search
 from . import plans
 from . import letters
 from . import hooks
+from . import buckets
 
 
 def register_all(mcp) -> None:
@@ -37,3 +38,4 @@ def register_all(mcp) -> None:
     plans.register(mcp)
     letters.register(mcp)
     hooks.register(mcp)
+    buckets.register(mcp)
