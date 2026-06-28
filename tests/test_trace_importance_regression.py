@@ -40,6 +40,31 @@ async def test_trace_importance_update_refreshes_importance_breath(bucket_mgr):
 
 
 @pytest.mark.asyncio
+async def test_importance_breath_keeps_threshold_bucket_visible_when_tens_fill_cap(bucket_mgr):
+    install_runtime(bucket_mgr)
+    for i in range(21):
+        await bucket_mgr.create(
+            content=f"Higher-importance memory {i}",
+            importance=10,
+            domain=["rules"],
+        )
+    bucket_id = await bucket_mgr.create(
+        content="Demoted-to-nine memory should still be visible at threshold nine.",
+        importance=10,
+        domain=["rules"],
+    )
+
+    result = await trace_core(bucket_id, importance=9)
+    bucket = await bucket_mgr.get(bucket_id)
+    breath = await surface_by_importance(importance_min=9, max_tokens=10000, tag_filter=[])
+
+    assert "importance=9" in result
+    assert bucket["metadata"]["importance"] == 9
+    assert bucket_id in breath
+    assert "[importance:9]" in breath
+
+
+@pytest.mark.asyncio
 async def test_trace_importance_update_on_pinned_bucket_does_not_report_fake_success(bucket_mgr):
     bucket_id = await bucket_mgr.create(
         content="Pinned memory keeps importance locked.",
