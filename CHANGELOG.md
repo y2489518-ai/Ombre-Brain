@@ -2,6 +2,22 @@
 
 本项目版本号见根目录 `VERSION` 文件，Docker 镜像 tag 与之对应（`p0luz/ombre-brain:<VERSION>`）。
 
+## 2.4.4
+
+### 修复 / Fixed
+
+- 允许在 Dashboard 清空或修改 `AI_NAME`，避免关闭 OAuth 后仍显示旧的 AI 显示名；清空后回退为默认 `AI`。
+- 统一桶元数据读取层的日期时间序列化，将 `created` / `last_active` 中的 `datetime` / `date` 归一化为 ISO 字符串，避免 `dream()`、Dashboard 首页和导入页面 JSON 序列化报错。
+
+### 测试 / Tests
+
+- 新增 `tests/test_env_config_identity.py` 覆盖 AI 显示名清空回归。
+- 新增 `tests/test_datetime_metadata_normalization.py` 覆盖 YAML/frontmatter 时间戳被解析为 `datetime` 后的序列化回归。
+
+### 维护 / Chores
+
+- VERSION + `src/VERSION` -> 2.4.4。
+
 ## 2.4.0
 
 ### 架构 / Architecture
