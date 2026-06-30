@@ -56,17 +56,17 @@ def register(mcp) -> None:
         if err:
             return err
 
-        # 启动期被平台注入的 OMBRE_* 集合（在任何 dashboard 保存 mutate os.environ 之前快照）。
+        # 启动期被平台注入的可配置 env 集合（在任何 dashboard 保存 mutate os.environ 之前快照）。
         # from_boot=True ⇒ 该变量是平台级 env，重启后会覆盖 dashboard 存进 config.yaml 的值。
-        from utils import BOOT_ENV_OMBRE
+        from utils import BOOT_ENV_CONFIG
 
         def _masked(name: str) -> dict:
             return {"set": bool(os.environ.get(name, "").strip()), "value": None,
-                    "from_boot": name in BOOT_ENV_OMBRE}
+                    "from_boot": name in BOOT_ENV_CONFIG}
 
         def _plain(name: str) -> dict:
             v = os.environ.get(name, "").strip()
-            return {"set": bool(v), "value": v or None, "from_boot": name in BOOT_ENV_OMBRE}
+            return {"set": bool(v), "value": v or None, "from_boot": name in BOOT_ENV_CONFIG}
 
         vars_data = [
             # LLM 压缩组
@@ -82,6 +82,8 @@ def register(mcp) -> None:
             {"name": "OMBRE_PORT", "group": "system", "label": "服务端口", "sensitive": False, **_plain("OMBRE_PORT")},
             {"name": "OMBRE_LOG_FILE", "group": "system", "label": "日志文件路径", "sensitive": False, **_plain("OMBRE_LOG_FILE")},
             {"name": "OMBRE_CONFIG_PATH", "group": "system", "label": "配置文件路径", "sensitive": False, **_plain("OMBRE_CONFIG_PATH")},
+            {"name": "OMBRE_MCP_REQUIRE_AUTH", "group": "auth", "label": "MCP OAuth 开关覆盖", "sensitive": False, **_plain("OMBRE_MCP_REQUIRE_AUTH")},
+            {"name": "AI_NAME", "group": "identity", "label": "AI 显示名", "sensitive": False, **_plain("AI_NAME")},
             # 路径组
             {"name": "OMBRE_VAULT_DIR", "group": "paths", "label": "Vault 目录 (推荐)", "sensitive": False, **_plain("OMBRE_VAULT_DIR")},
             {"name": "OMBRE_BUCKETS_DIR", "group": "paths", "label": "桶目录 (旧版兼容)", "sensitive": False, **_plain("OMBRE_BUCKETS_DIR")},
@@ -517,12 +519,15 @@ def register(mcp) -> None:
         # Webhook
         "OMBRE_HOOK_URL":          {"group": "webhook",  "sensitive": False, "in_memory": None},
         "OMBRE_HOOK_SKIP":         {"group": "webhook",  "sensitive": False, "in_memory": None},
+        # Identity / display labels
+        "AI_NAME":                 {"group": "identity", "sensitive": False, "in_memory": None},
     }
 
     _ENV_CONFIG_NOTE = {
         "compress": "改完即时生效（进程内 sh.config 已更新），同时写 config.yaml 持久化（重启后仍有效）。",
         "embed": "API key / base_url / model 立即更新进程内 config；backend 切换请用「切换 / 重算所有 embedding…」按钮。",
         "webhook": "改完下次 breath/dream 触发时即生效，无需重启。",
+        "identity": "AI 显示名立即生效；若由平台环境变量注入，重启后仍会被平台值覆盖。",
     }
 
 
@@ -637,6 +642,14 @@ def register(mcp) -> None:
                 os.environ[var] = value
             else:
                 os.environ.pop(var, None)
+
+            # 2.5. 纯 env 字段没有 config.yaml 映射，写入项目 .env 作为持久化来源。
+            if not meta["in_memory"]:
+                try:
+                    sh._write_env_var(var, value)
+                except Exception as e:
+                    errors.append(f"{var}: 写 .env 失败：{e}")
+                    continue
 
             # 3. 持久化到 config.yaml（bind mount，重建不丢）
             try:

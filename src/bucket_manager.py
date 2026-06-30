@@ -32,7 +32,7 @@ import math
 import logging
 import shutil
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 # 统一错误体系：越界 clamp 时上报 OB-W001/OB-W002（rule.md §11）
 try:
@@ -1326,6 +1326,19 @@ class BucketManager:
         except Exception:
             return default
 
+    @classmethod
+    def _normalize_metadata_value(cls, value):
+        """Return JSON-safe metadata values from YAML frontmatter reads."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {k: cls._normalize_metadata_value(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [cls._normalize_metadata_value(v) for v in value]
+        return value
+
     def _load_bucket(self, file_path: str) -> Optional[dict]:
         """
         Parse a Markdown file and return structured bucket data.
@@ -1333,7 +1346,10 @@ class BucketManager:
         """
         try:
             post = frontmatter.load(file_path)
-            metadata = dict(post.metadata)
+            metadata = {
+                key: self._normalize_metadata_value(value)
+                for key, value in dict(post.metadata).items()
+            }
             domain_value = metadata.get("domain")
             if isinstance(domain_value, str):
                 metadata["domain"] = [domain_value] if domain_value.strip() else []

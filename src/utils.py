@@ -55,13 +55,17 @@ _LOG_FALLBACK_DIR = "/tmp/ombre_logs"  # 所有候选路径都失败时的最终
 # sanitize_name() 桶名最大长度（防止文件名过长导致 OS 报错）。
 _BUCKET_NAME_MAX_LEN = 80
 
-# 进程启动那一刻就被「真实 OS / 平台」注入的 OMBRE_* 环境变量名集合（值非空才算）。
+# 进程启动那一刻就被「真实 OS / 平台」注入的可配置环境变量名集合（值非空才算）。
 # 在任何 dashboard 保存动作 mutate os.environ 之前快照——这是「平台级 env」与
 # 「运行时被 dashboard 写进 os.environ 的值」唯一可靠的区分依据。
 # 用途：dashboard 据此提示「这些字段由平台环境变量提供，重启会覆盖你这里保存的值」，
 # 修复「config.yaml 存了 Gemini，但平台 OMBRE_COMPRESS_BASE_URL=DeepSeek 每次重启盖回」的坑。
+BOOT_ENV_CONFIG: frozenset[str] = frozenset(
+    k for k, v in os.environ.items()
+    if (k.startswith("OMBRE_") or k == "AI_NAME") and str(v).strip()
+)
 BOOT_ENV_OMBRE: frozenset[str] = frozenset(
-    k for k, v in os.environ.items() if k.startswith("OMBRE_") and str(v).strip()
+    k for k in BOOT_ENV_CONFIG if k.startswith("OMBRE_")
 )
 
 
