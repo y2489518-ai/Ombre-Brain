@@ -58,7 +58,10 @@ logger = logging.getLogger("ombre_brain.dehydrator")
 # --- 脱水缓存版本号 ---
 # 改任何会影响脱水/合并输出的 prompt 时 +1，使存量缓存自然失效（见 _content_key）。
 # v2：DEHYDRATE/MERGE 加入「视角铁律」，强制保留第一人称（我 / 人名）。
-_PROMPT_VERSION = 2
+# v3：DEHYDRATE 输出从 core_facts JSON 改为第一人称散文——磁盘上的记忆本来就是
+#     散文，压缩展示不该把日记变成档案（2026-07-13 参照 Non「后台只调数值，
+#     浮到意识里的永远是第一人称的我」+ Cloude 对同款管道的会诊）。
+_PROMPT_VERSION = 3
 
 # --- LLM 默认参数 ---
 _DEFAULT_MODEL = "gemini-2.0-flash"
@@ -135,24 +138,17 @@ def _perspective_rule(human: str) -> str:
     )
 
 
-DEHYDRATE_PROMPT = """你是一个信息压缩专家。请将以下内容脱水为紧凑摘要。
+DEHYDRATE_PROMPT = """你是一个记忆压缩师。下面是「我」（AI）以第一人称写下的一段记忆，请把它压缩成一段更短的第一人称叙述。
 
 压缩规则：
-1. 提取所有核心事实，去除冗余修饰和重复
-2. 保留最新的情绪状态和态度
-3. 保留所有待办/未完成事项
-4. 关键数字、日期、名称必须保留
-5. 目标压缩率 > 70%
+1. 保留所有核心事实、关键数字、日期、名称，去除冗余修饰和重复
+2. 保留情绪的温度和态度，压密度不压体温
+3. 待办/未完成事项必须保留
+4. 目标压缩率 > 70%
+5. 输出是一段自然的中文叙述（可多句），不要 JSON、不要列表、不要标题、不要字段名
 6. 严格保留第一人称视角（见下方视角铁律）
 
-输出格式（纯 JSON，无其他内容）：
-{
-  "core_facts": ["事实1", "事实2"],
-  "emotion_state": "当前情绪关键词",
-  "todos": ["待办1", "待办2"],
-  "keywords": ["关键词1", "关键词2"],
-  "summary": "50字以内的核心总结"
-}"""
+直接输出压缩后的文本，不要加任何说明。"""
 
 
 # --- Diary digest prompt: split daily notes into independent memory entries ---
