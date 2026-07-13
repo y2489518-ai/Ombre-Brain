@@ -36,6 +36,52 @@ from utils import strip_wikilinks, count_tokens_approx
 _FALLBACK_LOG_INTERVAL_SEC = 300
 _fallback_log_state = {"last_ts": 0.0, "suppressed": 0}
 
+# ============================================================
+# 浮现冷却（2026-07-13 抄 Non §7：同一条记忆刚浮现过就进冷却期，
+# 不在无参 breath 里反复刷脸；基础 30min，每浮 5 次 +30min，封顶 3h）
+# ------------------------------------------------------------
+# 设计边界：
+# - 进程内登记簿（重启即清零）——冷却是礼貌不是账本，丢了无妨；
+#   不写桶元数据，守住「breath 不产生磁盘副作用」的底线。
+# - 只冷却无参浮现的动态池/久未浮现/偶遇；pinned 核心准则永不冷却；
+#   breath(query=...) 是明确追问，永远放行（安珩：追问顶穿）。
+# ============================================================
+_COOLDOWN_BASE_SEC = 30 * 60
+_COOLDOWN_STEP_SEC = 30 * 60      # 每浮现 5 次多罚 30 分钟
+_COOLDOWN_CAP_SEC = 3 * 3600
+_surface_ledger: dict = {}         # bucket_id -> {"ts": float, "count": int}
+
+# 热记忆语境门控（抄 Non hot-mood gating 的最小版）：
+# 高唤醒的恋爱域记忆不进「久未浮现/偶遇」这类随机通道——亲密的东西
+# 不该在干活时随机蹦出来；主动检索和权重主池不受影响。
+_HOT_AROUSAL = 0.85
+_HOT_DOMAIN = "恋爱"
+
+
+def _in_cooldown(bucket_id: str) -> bool:
+    rec = _surface_ledger.get(bucket_id)
+    if not rec:
+        return False
+    penalty = _COOLDOWN_STEP_SEC * (rec["count"] // 5)
+    window = min(_COOLDOWN_BASE_SEC + penalty, _COOLDOWN_CAP_SEC)
+    return (time.time() - rec["ts"]) < window
+
+
+def _mark_surfaced(bucket_id: str) -> None:
+    rec = _surface_ledger.setdefault(bucket_id, {"ts": 0.0, "count": 0})
+    rec["ts"] = time.time()
+    rec["count"] += 1
+
+
+def _is_hot_private(meta: dict) -> bool:
+    try:
+        return (
+            float(meta.get("arousal") or 0) >= _HOT_AROUSAL
+            and _HOT_DOMAIN in (meta.get("domain") or [])
+        )
+    except (TypeError, ValueError):
+        return False
+
 
 def _bucket_has_tags(meta: dict, tag_filter: list) -> bool:
     if not tag_filter:
@@ -97,6 +143,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
         and not b["metadata"].get("pinned", False)
         and not b["metadata"].get("protected", False)
         and not b["metadata"].get("dont_surface", False)
+        and not _in_cooldown(b["id"])
         and _bucket_has_tags(b["metadata"], tag_filter)
     ]
 
@@ -209,6 +256,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                 break
             score = rt.decay_engine.calculate_score(b["metadata"])
             dynamic_results.append(f"[权重:{score:.2f}] [bucket_id:{b['id']}] {summary}")
+            _mark_surfaced(b["id"])
             token_budget -= summary_tokens
         except Exception as e:
             rt.logger.warning(f"Failed to dehydrate surfaced bucket / 浮现脱水失败: {e}")
@@ -244,6 +292,8 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
             meta = b["metadata"]
             ac = int(meta.get("activation_count") or 0)
             imp = int(meta.get("importance") or 0)
+            if _is_hot_private(meta) or _in_cooldown(b["id"]):
+                continue  # 热的私房记忆不走随机通道；冷却中的不重复刷脸
             cond_a = ac == 0 and imp >= 8
             cond_b = False
             if imp >= 9:
@@ -263,6 +313,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                     clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
                     summary = await rt.dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
                     passive_results.append(f"💤 [久未浮现] [bucket_id:{b['id']}] {summary}")
+                    _mark_surfaced(b["id"])
                 except Exception as e:
                     rt.logger.warning(f"passive association dehydrate failed: {e}")
     except Exception as e:
@@ -281,6 +332,8 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                 and b["id"] not in shown_ids
                 and b["metadata"].get("type") not in ("feel", "plan", "letter")
                 and not b["metadata"].get("pinned")
+                and not _is_hot_private(b["metadata"])
+                and not _in_cooldown(b["id"])
             ]
             if resolved_pool:
                 random.shuffle(resolved_pool)
@@ -289,6 +342,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                         clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
                         summary = await rt.dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
                         dream_results.append(f"✨ [偶遇] [bucket_id:{b['id']}] {summary}")
+                        _mark_surfaced(b["id"])
                         rt.logger.info(f"Dream surface triggered / 偶遇机制触发: {b['id']}")
                     except Exception as e:
                         rt.logger.warning(f"Dream surface dehydrate failed / 偶遇脱水失败: {e}")
