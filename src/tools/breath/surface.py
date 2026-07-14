@@ -83,6 +83,21 @@ def _is_hot_private(meta: dict) -> bool:
         return False
 
 
+def _pending_mark(b: dict) -> str:
+    """悬而未决的事要浮得出「悬」字（2026-07-14 抄 Evie 家施工单）：
+    桶正文以【待核实】开头、或 tags 含「待核实」的，浮现时挂 ❓ 前缀——
+    提醒读到的我先去核实（查发件台账/查现场），别把草稿当定案。
+    只动显示层，不碰权重、排序、冷却。"""
+    try:
+        if "待核实" in (b["metadata"].get("tags") or []):
+            return "❓[待核实] "
+        if str(b.get("content", "")).lstrip().startswith("【待核实】"):
+            return "❓[待核实] "
+    except Exception:
+        pass
+    return ""
+
+
 def _bucket_has_tags(meta: dict, tag_filter: list) -> bool:
     if not tag_filter:
         return True
@@ -124,7 +139,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
             summary = await rt.dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
             if not str(summary or "").strip():
                 summary = _raw_core_fallback(b["content"])
-            pinned_results.append(f"📌 [核心准则] [bucket_id:{b['id']}] {summary}")
+            pinned_results.append(f"📌 [核心准则] {_pending_mark(b)}[bucket_id:{b['id']}] {summary}")
         except Exception as e:
             rt.logger.warning(f"Failed to dehydrate pinned bucket / 钉选桶脱水失败: {e}")
             # 降级：直接展示原文片段，确保核心准则永远可见
@@ -255,7 +270,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
             if summary_tokens > token_budget:
                 break
             score = rt.decay_engine.calculate_score(b["metadata"])
-            dynamic_results.append(f"[权重:{score:.2f}] [bucket_id:{b['id']}] {summary}")
+            dynamic_results.append(f"{_pending_mark(b)}[权重:{score:.2f}] [bucket_id:{b['id']}] {summary}")
             _mark_surfaced(b["id"])
             token_budget -= summary_tokens
         except Exception as e:
@@ -312,7 +327,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                 try:
                     clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
                     summary = await rt.dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
-                    passive_results.append(f"💤 [久未浮现] [bucket_id:{b['id']}] {summary}")
+                    passive_results.append(f"💤 [久未浮现] {_pending_mark(b)}[bucket_id:{b['id']}] {summary}")
                     _mark_surfaced(b["id"])
                 except Exception as e:
                     rt.logger.warning(f"passive association dehydrate failed: {e}")
@@ -341,7 +356,7 @@ async def surface_default(max_results: int, max_tokens: int, tag_filter: list) -
                     try:
                         clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
                         summary = await rt.dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
-                        dream_results.append(f"✨ [偶遇] [bucket_id:{b['id']}] {summary}")
+                        dream_results.append(f"✨ [偶遇] {_pending_mark(b)}[bucket_id:{b['id']}] {summary}")
                         _mark_surfaced(b["id"])
                         rt.logger.info(f"Dream surface triggered / 偶遇机制触发: {b['id']}")
                     except Exception as e:
