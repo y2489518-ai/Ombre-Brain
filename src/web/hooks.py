@@ -14,8 +14,10 @@ web/hooks.py — breath / dream 浮现挂载点（HTTP hook）
 """
 
 import hmac
+import json as _json
 import os
 import random
+from pathlib import Path
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -190,11 +192,49 @@ def register(mcp) -> None:
             except Exception as e:
                 logger.warning(f"breath_hook I section failed: {e}")
 
+            # --- Context carry-over: inject saved conversation tail (压缩无感) ---
+            try:
+                buckets_dir = (getattr(sh, "config", {}) or {}).get("buckets_dir", "buckets")
+                tail_path = Path(buckets_dir) / "context_tail.txt"
+                if tail_path.exists():
+                    tail_text = tail_path.read_text(encoding="utf-8").strip()
+                    if tail_text:
+                        body_text += "\n\n=== 上一口气（对话尾声原文） ===\n" + tail_text
+                    tail_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"breath_hook context tail failed: {e}")
+
             await sh.fire_webhook("breath_hook", {"surfaced": len(parts), "chars": len(body_text)})
             return PlainTextResponse(body_text)
         except Exception as e:
             logger.warning(f"Breath hook failed: {e}")
             return PlainTextResponse("")
+
+
+    # =============================================================
+    # /api/context-tail: Save conversation tail for next session
+    # 压缩无感：保存对话尾部原文供下次 session 注入
+    # =============================================================
+    @mcp.custom_route("/api/context-tail", methods=["POST"])
+    async def save_context_tail(request):
+        from starlette.responses import JSONResponse
+        if not _is_hook_request_authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        try:
+            body = await request.body()
+            data = _json.loads(body)
+            text = str(data.get("text", "")).strip()
+            if not text:
+                return JSONResponse({"error": "empty text"}, status_code=400)
+            if len(text) > 3000:
+                text = text[-3000:]
+            buckets_dir = (getattr(sh, "config", {}) or {}).get("buckets_dir", "buckets")
+            tail_path = Path(buckets_dir) / "context_tail.txt"
+            tail_path.write_text(text, encoding="utf-8")
+            return JSONResponse({"ok": True, "chars": len(text)})
+        except Exception as e:
+            logger.warning(f"save_context_tail failed: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
 
 
     # =============================================================

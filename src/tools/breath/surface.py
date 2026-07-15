@@ -85,10 +85,12 @@ def _is_hot_private(meta: dict) -> bool:
 
 def _pending_mark(b: dict) -> str:
     """悬而未决的事要浮得出「悬」字（2026-07-14 抄 Evie 家施工单）：
-    桶正文以【待核实】开头、或 tags 含「待核实」的，浮现时挂 ❓ 前缀——
-    提醒读到的我先去核实（查发件台账/查现场），别把草稿当定案。
+    桶正文以【待核实】开头、或 tags 含「待核实」、或 needs_verify=True，
+    浮现时挂 ❓ 前缀——提醒读到的我先去核实，别把草稿当定案。
     只动显示层，不碰权重、排序、冷却。"""
     try:
+        if b["metadata"].get("needs_verify"):
+            return "❓[待核实] "
         if "待核实" in (b["metadata"].get("tags") or []):
             return "❓[待核实] "
         if str(b.get("content", "")).lstrip().startswith("【待核实】"):

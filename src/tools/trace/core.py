@@ -48,6 +48,7 @@ async def trace_core(
     weight: Optional[float] = -1,
     dont_surface: Optional[int] = -1,
     why_remembered: Optional[str] = "",
+    needs_verify: Optional[int] = -1,
 ) -> str:
     if name is None: name = ""
     if domain is None: domain = ""
@@ -64,6 +65,7 @@ async def trace_core(
     if weight is None: weight = -1
     if dont_surface is None: dont_surface = -1
     if why_remembered is None: why_remembered = ""
+    if needs_verify is None: needs_verify = -1
     if rt.mark_op:
         rt.mark_op("trace")
     rt.record_v3_tool_event("trace", {
@@ -142,6 +144,8 @@ async def trace_core(
         updates["weight"] = float(weight)
     if dont_surface in (0, 1):
         updates["dont_surface"] = bool(dont_surface)
+    if needs_verify in (0, 1):
+        updates["needs_verify"] = bool(needs_verify)
     why_remembered = str(why_remembered).strip()
     if why_remembered == "\\clear":
         updates["why_remembered"] = ""

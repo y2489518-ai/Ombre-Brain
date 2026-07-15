@@ -54,6 +54,7 @@ from embedding_engine import EmbeddingEngine
 from import_memory import ImportEngine
 from migrate_engine import MigrateEngine
 from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx, get_version, extract_wikilinks
+import surfacing_trace
 
 # --- iter 2.1：MCP 工具实现已按代码路径拆分到 tools/ 子包 ---
 # 本文件只保留 MCP 注册 + 路由（HTTP custom_route）+ 共享辅助。
@@ -209,6 +210,7 @@ except ImportError:
         get_recent_logs,
     )
 configure_errors_path(config.get("buckets_dir", "buckets"))
+surfacing_trace.init(config.get("buckets_dir", "buckets"))
 
 try:
     embedding_engine = EmbeddingEngine(config)            # Embedding engine first (BucketManager depends on it)
@@ -564,7 +566,7 @@ async def breath(
     tags: Optional[str] = "",
 ) -> str:
     """检索并返回记忆桶。不传 query=返回权重最高的未解决记忆;传 query=按关键词+语义检索相关记忆。max_tokens=单次返回总 token 上限(默认 config.surfacing.breath_max_tokens,fallback 10000)。domain 逗号分隔,valence/arousal 0~1(-1 忽略)。max_results=返回条数上限(默认 config.surfacing.breath_max_results,fallback 20,最大 50)。importance_min>=1=跳过语义检索,按重要度降序返回最多 20 条高重要度记忆。tags 逗号分隔,AND 过滤;tags=\"feel\" 或 \"__feel__\" 等价于 domain=\"feel\",返回所有 feel 类记忆。"""
-    return await _with_notice(
+    result = await _with_notice(
         _t_breath.dispatch(
             query=query, max_tokens=max_tokens, domain=domain,
             valence=valence, arousal=arousal, max_results=max_results,
@@ -577,6 +579,17 @@ async def breath(
             "importance_min": importance_min, "tags": tags,
         },
     )
+    try:
+        from pathlib import Path
+        tail_path = Path(config.get("buckets_dir", "buckets")) / "context_tail.txt"
+        if tail_path.exists():
+            tail_text = tail_path.read_text(encoding="utf-8").strip()
+            if tail_text:
+                result += "\n\n=== 上一口气（对话尾声原文） ===\n" + tail_text
+            tail_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return result
 
 
 @mcp.tool()
@@ -636,8 +649,9 @@ async def trace(
     weight: Optional[float] = -1,
     dont_surface: Optional[int] = -1,
     why_remembered: Optional[str] = "",
+    needs_verify: Optional[int] = -1,
 ) -> str:
-    """修改某条记忆的元数据或内容。resolved=1=标记已放下,沉底仅在关键词触发时返回;resolved=0=重新激活;pinned=1=标记永久核心(锁 importance=10),0=取消;digested=1=标记已消化,加速淡化;content=替换桶正文并重建 embedding;delete=True=彻底删除(不可恢复);status=plan 桶状态(active/resolved/abandoned);weight=plan 承诺重量 0.0-1.0;dont_surface=1=不再出现在 breath,0=恢复;why_remembered=更新记录原因。只传需要修改的字段,-1 或空串表示不改。"""
+    """修改某条记忆的元数据或内容。resolved=1=标记已放下;pinned=1=标记永久核心(锁 importance=10);needs_verify=1=标记待核实(浮现时显示❓),0=已核实清除;dont_surface=1=不再出现在 breath;delete=True=彻底删除。只传需要修改的字段,-1 或空串表示不改。"""
     return await _with_notice(
         _t_trace.dispatch(
             bucket_id=bucket_id, name=name, domain=domain,
@@ -645,6 +659,7 @@ async def trace(
             tags=tags, resolved=resolved, pinned=pinned, digested=digested,
             content=content, delete=delete, status=status, weight=weight,
             dont_surface=dont_surface, why_remembered=why_remembered,
+            needs_verify=needs_verify,
         ),
         op="trace",
         args={
@@ -654,6 +669,7 @@ async def trace(
             "content_len": len(content or ""), "delete": delete, "status": status,
             "weight": weight, "dont_surface": dont_surface,
             "why_len": len(why_remembered or ""),
+            "needs_verify": needs_verify,
         },
     )
 
