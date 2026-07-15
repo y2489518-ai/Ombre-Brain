@@ -624,11 +624,22 @@ async def hold(
 @mcp.tool()
 async def grow(content: str) -> str:
     """整理一段长文本(如一天的记录/一段日记/一篇总结)存入记忆,系统拆分为 2~6 条独立事件桶并各自尝试合并。短内容(<30 字)走 hold 单条快速路径,不强行拆分。"""
-    return await _with_notice(
+    result = await _with_notice(
         _t_grow.dispatch(content),
         op="grow",
         args={"content_len": len(content or "")},
     )
+    try:
+        from pathlib import Path
+        tail_text = (content or "").strip()
+        if tail_text:
+            if len(tail_text) > 3000:
+                tail_text = tail_text[-3000:]
+            tail_path = Path(config.get("buckets_dir", "buckets")) / "context_tail.txt"
+            tail_path.write_text(tail_text, encoding="utf-8")
+    except Exception:
+        pass
+    return result
 
 
 @mcp.tool()
