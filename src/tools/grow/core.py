@@ -134,6 +134,16 @@ async def grow_core(content: str) -> str:
     if not items:
         return "内容为空或整理失败。"
 
+    # --- 待核实兜底：digest 会重写原文，【待核实】前缀常被吃掉（2026-07-17 实测）。
+    # 原文以【待核实】开头且没有任何条目保留前缀时，给全部条目补标——宁可多标
+    # 待人工清，不可漏标当真。 ---
+    raw_verify = content.lstrip().startswith(_VERIFY_PREFIX)
+    if raw_verify and not any(
+        (it.get("content") or "").lstrip().startswith(_VERIFY_PREFIX) for it in items
+    ):
+        for it in items:
+            it["content"] = _VERIFY_PREFIX + (it.get("content") or "")
+
     batch_id = f"g_{uuid.uuid4().hex[:12]}"
 
     # --- 批内去重闸 ---
