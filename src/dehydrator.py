@@ -166,8 +166,9 @@ DIGEST_PROMPT = """你是一个日记整理专家。她/他会发送一段包含
 8. 在 content 中对人名、地名、专有名词用 [[双链]] 标记（如 [[人名]]、[[专有名词]]），普通词汇不要加
 9. 如果原文中某件事带有【待核实】标记，对应条目的 content 必须以【待核实】开头原样保留这个前缀（这是下游的机器标记，不能丢，也不要扩散到无关条目）
 
-输出格式（纯 JSON 数组，无其他内容）：
-[
+输出格式（合法 JSON 对象，根节点是 items 数组，无其他内容；字符串里的引号必须转义）：
+{
+  "items": [
   {
     "name": "条目标题（10字以内）",
     "content": "整理后的内容",
@@ -177,7 +178,8 @@ DIGEST_PROMPT = """你是一个日记整理专家。她/他会发送一段包含
     "tags": ["核心词1", "核心词2", "扩展词1", "扩展词2"],
     "importance": 5
   }
-]
+  ]
+}
 
 tags 生成规则：先从原文精准提取 3~5 个核心词，再引申扩展 5~8 个语义相关词（近义词、上位词、关联场景词），合并为一个数组。
 
@@ -395,6 +397,7 @@ class Dehydrator:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: dict | None = None,
     ) -> str:
         """统一 chat 入口：对 429 / 5xx / 超时等瞬时错误做指数退避重试。
 
@@ -404,7 +407,8 @@ class Dehydrator:
         for attempt in range(_RETRY_MAX_ATTEMPTS):
             try:
                 return await self._chat_once(
-                    system, user, max_tokens=max_tokens, temperature=temperature
+                    system, user, max_tokens=max_tokens, temperature=temperature,
+                    response_format=response_format,
                 )
             except Exception as e:
                 if not self._is_transient_error(e) or attempt == _RETRY_MAX_ATTEMPTS - 1:
@@ -427,6 +431,7 @@ class Dehydrator:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: dict | None = None,
     ) -> str:
         """统一的 OpenAI-compatible chat 调用。
 
@@ -454,6 +459,9 @@ class Dehydrator:
         # openai_compat (default)
         if self.client is None:
             return ""
+        kwargs = {}
+        if response_format is not None:
+            kwargs["response_format"] = response_format  # DeepSeek/OpenAI JSON模式：服务端保证合法JSON
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -462,6 +470,7 @@ class Dehydrator:
             ],
             max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
             temperature=temperature if temperature is not None else self.temperature,
+            **kwargs,
         )
         if not response.choices:
             return ""
@@ -851,6 +860,7 @@ class Dehydrator:
             content[:_DIGEST_INPUT_LIMIT],
             max_tokens=_DIGEST_MAX_TOKENS,
             temperature=_DIGEST_TEMPERATURE,
+            response_format={"type": "json_object"},  # 治引号刺杀：原文含未转义引号时裸JSON必炸(2026-07-17验尸)
         )
         if not raw.strip():
             return []
@@ -872,6 +882,12 @@ class Dehydrator:
             logger.warning(f"Diary digest JSON parse failed / JSON 解析失败: {raw[:_PARSE_ERR_PREVIEW]}")
             return []
 
+        if isinstance(items, dict):
+            # JSON模式的根是对象：优先 items 键，否则取第一个列表值
+            if isinstance(items.get("items"), list):
+                items = items["items"]
+            else:
+                items = next((v for v in items.values() if isinstance(v, list)), [])
         if not isinstance(items, list):
             return []
 
