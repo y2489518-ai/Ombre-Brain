@@ -838,6 +838,10 @@ class Dehydrator:
         self._require_api()
         try:
             result = await self._api_digest(content)
+            if not result:
+                # 空回包多为上游瞬时抽风（2026-07-16 实测：同样内容一发空一发成），歇一秒重试一次
+                await asyncio.sleep(1)
+                result = await self._api_digest(content)
             if result:
                 return result
             raise RuntimeError("API 日记整理返回空结果")
